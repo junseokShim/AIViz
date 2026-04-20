@@ -1,0 +1,38 @@
+# AIViz dependencies
+# Install: pip install -r requirements.txt
+
+# Desktop UI
+PyQt6>=6.6.0
+
+# Plotting (embedded in PyQt)
+matplotlib>=3.8.0
+
+# Data handling
+pandas>=2.0.0
+numpy>=1.24.0
+openpyxl>=3.1.0
+pyarrow>=14.0.0
+
+# Signal analysis
+scipy>=1.11.0
+
+# Image analysis
+Pillow>=10.0.0
+
+# HTTP client for Ollama
+httpx>=0.25.0
+
+# Forecasting
+statsmodels>=0.14.0
+
+# Export
+fpdf2>=2.7.0
+
+# Utilities
+python-dotenv>=1.0.0
+
+# Optional: OpenCV (heavier, only if needed)
+# opencv-python-headless>=4.8.0
+
+# Dev / test
+pytest>=8.0.0

@@ -24,7 +24,8 @@ from config import APP
 class FilePanel(QWidget):
     """Left sidebar for loading files."""
 
-    open_requested = pyqtSignal(bytes, str)   # (file_bytes, file_name)
+    open_requested = pyqtSignal(bytes, str)         # (file_bytes, file_name)
+    folder_requested = pyqtSignal(str)              # folder path
 
     def __init__(self, controller: AppController, parent=None):
         super().__init__(parent)
@@ -56,14 +57,20 @@ class FilePanel(QWidget):
         layout.addSpacing(8)
 
         # Open button
-        self._open_btn = QPushButton("📂  Open File…")
+        self._open_btn = QPushButton("📂  파일 열기…")
         self._open_btn.setToolTip(
-            "Open CSV, Excel, JSON, Parquet, or image file"
+            "CSV, Excel, JSON, Parquet, 또는 이미지 파일 열기"
         )
         layout.addWidget(self._open_btn)
 
+        # Folder button
+        self._folder_btn = QPushButton("📁  폴더 가져오기…")
+        self._folder_btn.setObjectName("secondary")
+        self._folder_btn.setToolTip("폴더 내 모든 지원 파일을 일괄 로드")
+        layout.addWidget(self._folder_btn)
+
         # Drag-drop hint
-        hint = QLabel("or drag & drop a file here")
+        hint = QLabel("또는 파일을 여기로 드래그 앤 드롭")
         hint.setObjectName("meta")
         hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(hint)
@@ -108,6 +115,7 @@ class FilePanel(QWidget):
 
     def _connect(self) -> None:
         self._open_btn.clicked.connect(self._on_open_clicked)
+        self._folder_btn.clicked.connect(self._on_folder_clicked)
         self._clear_btn.clicked.connect(self._ctrl.clear)
         self._ctrl.data_loaded.connect(self._on_data_loaded)
 
@@ -120,11 +128,18 @@ class FilePanel(QWidget):
             f"*{e}" for e in APP.supported_tabular + APP.supported_image
         )
         path, _ = QFileDialog.getOpenFileName(
-            self, "Open File", "",
-            f"Supported files ({ext_list});;All files (*)"
+            self, "파일 열기", "",
+            f"지원 파일 ({ext_list});;모든 파일 (*)"
         )
         if path:
             self._load_path(path)
+
+    def _on_folder_clicked(self) -> None:
+        folder = QFileDialog.getExistingDirectory(
+            self, "폴더 선택 – 일괄 데이터 로드", ""
+        )
+        if folder:
+            self.folder_requested.emit(folder)
 
     def _on_data_loaded(self, result) -> None:
         if not result.ok:

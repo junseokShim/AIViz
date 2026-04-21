@@ -36,6 +36,7 @@ from aiviz.ui.panel_image import ImagePanel
 from aiviz.ui.panel_forecast import ForecastPanel
 from aiviz.ui.panel_assistant import AssistantPanel
 from aiviz.ui.panel_export import ExportPanel
+from aiviz.ui.panel_ml import MLPanel
 from config import APP, OLLAMA
 
 
@@ -115,6 +116,7 @@ class MainWindow(QMainWindow):
         self._panel_forecast = ForecastPanel(self.controller)
         self._panel_assistant = AssistantPanel(self.controller)
         self._panel_export = ExportPanel(self.controller)
+        self._panel_ml = MLPanel(self.controller)
 
         self._tabs.addTab(self._panel_data,      "📊  Data")
         self._tabs.addTab(self._panel_charts,    "📈  Charts")
@@ -123,6 +125,7 @@ class MainWindow(QMainWindow):
         self._tabs.addTab(self._panel_image,     "🖼  Image")
         self._tabs.addTab(self._panel_forecast,  "🔮  Forecast")
         self._tabs.addTab(self._panel_assistant, "🤖  AI Assistant")
+        self._tabs.addTab(self._panel_ml,        "🧠  ML")
         self._tabs.addTab(self._panel_export,    "📄  Export")
 
         self._splitter.addWidget(self._tabs)
@@ -174,6 +177,7 @@ class MainWindow(QMainWindow):
 
         # Pipe FilePanel open-file requests to controller
         self._file_panel.open_requested.connect(self._load_file_bytes)
+        self._file_panel.folder_requested.connect(self._load_folder)
 
     # ------------------------------------------------------------------
     # Slots
@@ -202,6 +206,86 @@ class MainWindow(QMainWindow):
 
     def _load_file_bytes(self, file_bytes: bytes, file_name: str) -> None:
         self.controller.load_file_async(file_bytes, file_name)
+
+    def _load_folder(self, folder_path: str) -> None:
+        from aiviz.ingestion.folder_loader import load_folder
+        from aiviz.app.controller import WorkerThread
+
+        self.controller.loading_started.emit()
+        self.controller.status_message.emit(f"폴더 로드 중: {folder_path}")
+
+        def do_load():
+            return load_folder(folder_path, recursive=False, combine=True)
+
+        def on_done(result):
+            self.controller.loading_finished.emit()
+            if not result.ok:
+                QMessageBox.warning(self, "폴더 로드 실패", result.error or "알 수 없는 오류")
+                return
+
+            self.controller.status_message.emit(
+                f"폴더 로드 완료: {result.loaded}/{result.total}개 파일"
+            )
+            self.controller.log_message.emit(result.summary_text())
+
+            # Show dialog to choose which DataFrame to use
+            self._show_folder_dialog(result)
+
+        worker = WorkerThread(do_load)
+        worker.result_ready.connect(on_done)
+        worker.error_occurred.connect(lambda e: (
+            self.controller.loading_finished.emit(),
+            QMessageBox.critical(self, "폴더 로드 오류", e)
+        ))
+        worker.start()
+        self._folder_worker = worker
+
+    def _show_folder_dialog(self, folder_result) -> None:
+        from PyQt6.QtWidgets import QDialog, QVBoxLayout, QListWidget, QDialogButtonBox, QLabel, QCheckBox
+        from aiviz.ingestion.loader import DataLoadResult
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("폴더 로드 결과")
+        dlg.setMinimumSize(500, 400)
+        layout = QVBoxLayout(dlg)
+
+        layout.addWidget(QLabel(folder_result.summary_text()))
+
+        chk_combined = QCheckBox("결합 데이터셋 사용 (모든 파일 병합)")
+        chk_combined.setChecked(folder_result.combined_df is not None)
+        chk_combined.setEnabled(folder_result.combined_df is not None)
+        layout.addWidget(chk_combined)
+
+        layout.addWidget(QLabel("또는 단일 파일 선택:"))
+        file_list = QListWidget()
+        for name in folder_result.per_file_dfs.keys():
+            file_list.addItem(name)
+        layout.addWidget(file_list)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        layout.addWidget(buttons)
+
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        if chk_combined.isChecked() and folder_result.combined_df is not None:
+            df = folder_result.combined_df
+            name = f"폴더: {folder_result.folder.name} ({folder_result.loaded}개 파일)"
+        elif file_list.currentItem():
+            selected = file_list.currentItem().text()
+            df = folder_result.per_file_dfs[selected]
+            name = selected
+        else:
+            return
+
+        # Inject into controller as a synthetic DataLoadResult
+        import io
+        csv_bytes = df.to_csv(index=False).encode("utf-8")
+        self.controller.load_file_async(csv_bytes, name if name.endswith(".csv") else name + ".csv")
 
     def _append_log(self, msg: str) -> None:
         self._log_edit.append(msg)

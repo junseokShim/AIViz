@@ -2,6 +2,7 @@
 Frequency-Domain Analysis panel.
 
 FFT, amplitude/power spectrum, peak detection, band energy, spectrogram, AI insight.
+Includes AC-component analysis (DC removal before FFT).
 """
 
 from __future__ import annotations
@@ -17,9 +18,12 @@ from PyQt6.QtCore import Qt
 from aiviz.app.controller import AppController, WorkerThread
 from aiviz.ui.widgets.plot_widget import PlotWidget
 from aiviz.ui.widgets.data_table import DataTableView
+from aiviz.ui.widgets.insight_panel import InsightPanel
 from aiviz.visualization import mpl_charts
 from aiviz.analytics.frequency import compute_fft, compute_band_stats, compute_spectrogram
+from aiviz.analytics.signal_processing_service import analyze_ac, remove_dc
 from aiviz.utils.helpers import numeric_columns
+from aiviz.utils.schema_utils import safe_col
 
 
 class FrequencyPanel(QWidget):
@@ -75,11 +79,16 @@ class FrequencyPanel(QWidget):
         self._log_chk.setChecked(True)
         cl.addWidget(self._log_chk)
 
+        self._ac_chk = QCheckBox("AC-only 분석 (DC 제거)")
+        self._ac_chk.setChecked(False)
+        self._ac_chk.setToolTip("FFT 전에 신호의 평균(DC 오프셋)을 제거합니다")
+        cl.addWidget(self._ac_chk)
+
         self._run_btn = QPushButton("Run FFT")
         self._run_btn.setEnabled(False)
         cl.addWidget(self._run_btn)
 
-        self._ai_btn = QPushButton("🤖 AI Insight")
+        self._ai_btn = QPushButton("🤖 AI 인사이트")
         self._ai_btn.setObjectName("secondary")
         self._ai_btn.setEnabled(False)
         cl.addWidget(self._ai_btn)
@@ -116,6 +125,20 @@ class FrequencyPanel(QWidget):
 
         self._peaks_table = DataTableView()
         tabs.addTab(self._peaks_table, "Peaks")
+
+        # AC analysis tab
+        ac_widget = QWidget()
+        ac_layout = QVBoxLayout(ac_widget)
+        self._ac_stats_table = DataTableView()
+        ac_layout.addWidget(QLabel("AC 성분 통계 (DC 제거 후)"))
+        ac_layout.addWidget(self._ac_stats_table)
+        self._ac_plot = PlotWidget(figsize=(10, 4))
+        ac_layout.addWidget(self._ac_plot)
+        tabs.addTab(ac_widget, "AC 성분")
+
+        # AI insight panel
+        self._insight = InsightPanel("🤖 주파수 AI 인사이트")
+        tabs.addTab(self._insight, "AI 인사이트")
 
         splitter.addWidget(tabs)
         splitter.setStretchFactor(0, 0)
@@ -158,7 +181,40 @@ class FrequencyPanel(QWidget):
         sr = self._sr_spin.value()
         win = self._win_combo.currentText()
         log = self._log_chk.isChecked()
-        series = self._df[col].dropna()
+        ac_only = self._ac_chk.isChecked()
+
+        raw_series = safe_col(self._df, col)
+        if raw_series is None:
+            self._ctrl.log_message.emit(f"[ERROR] 컬럼 '{col}'을 찾을 수 없습니다.")
+            return
+
+        series = raw_series.dropna()
+
+        # AC-only mode: run AC analysis and show stats
+        if ac_only:
+            ac_result = analyze_ac(series)
+            if ac_result.ok:
+                import pandas as pd
+                stats_df = pd.DataFrame(
+                    list(ac_result.summary_dict().items()),
+                    columns=["항목", "값"]
+                )
+                self._ac_stats_table.load(stats_df)
+
+                ax = self._ac_plot.get_ax()
+                ax.clear()
+                ax.plot(range(len(ac_result.original)), ac_result.original.values,
+                        label="원본 신호", alpha=0.6)
+                ax.plot(range(len(ac_result.ac_component)), ac_result.ac_component.values,
+                        label="AC 성분", alpha=0.9)
+                ax.axhline(y=0, color="gray", linestyle="--", alpha=0.5)
+                ax.set_title(f"{col} – 원본 vs AC 성분 (DC={ac_result.dc_offset:.4g})")
+                ax.legend(fontsize=9)
+                self._ac_plot.redraw()
+                # Use AC series for FFT
+                series = ac_result.ac_component
+            else:
+                self._ctrl.log_message.emit(f"[경고] AC 분석 실패: {ac_result.error}")
 
         if len(series) < 4:
             self._ctrl.log_message.emit("[ERROR] Signal must have ≥4 samples for FFT.")
@@ -231,12 +287,10 @@ class FrequencyPanel(QWidget):
 
     def _show_ai(self, result) -> None:
         self._reset_ai_btn()
-        from PyQt6.QtWidgets import QMessageBox
-        msg = QMessageBox(self)
-        msg.setWindowTitle("AI Frequency Insight")
-        msg.setText(result.answer)
-        msg.exec()
+        if result is None:
+            return
+        self._insight.set_text(result.answer)
 
     def _reset_ai_btn(self) -> None:
         self._ai_btn.setEnabled(True)
-        self._ai_btn.setText("🤖 AI Insight")
+        self._ai_btn.setText("🤖 AI 인사이트")

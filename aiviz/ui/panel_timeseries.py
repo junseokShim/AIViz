@@ -17,9 +17,11 @@ from PyQt6.QtCore import Qt
 from aiviz.app.controller import AppController, WorkerThread
 from aiviz.ui.widgets.plot_widget import PlotWidget
 from aiviz.ui.widgets.data_table import DataTableView
+from aiviz.ui.widgets.insight_panel import InsightPanel
 from aiviz.visualization import mpl_charts
 from aiviz.analytics.timeseries import analyze_series, multi_series_stats
 from aiviz.utils.helpers import numeric_columns, infer_time_column
+from aiviz.utils.schema_utils import safe_col
 
 
 class TimeSeriesPanel(QWidget):
@@ -126,6 +128,10 @@ class TimeSeriesPanel(QWidget):
         self._anom_table = DataTableView()
         right.addTab(self._anom_table, "Anomalies")
 
+        # AI insight panel
+        self._insight = InsightPanel("🤖 시계열 AI 인사이트")
+        right.addTab(self._insight, "AI 인사이트")
+
         splitter.addWidget(right)
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
@@ -184,10 +190,21 @@ class TimeSeriesPanel(QWidget):
         sigma = self._sigma_spin.value()
         smooth = self._smooth_chk.isChecked()
 
-        if idx_col != "(default index)" and idx_col in self._df.columns:
-            series = self._df.set_index(idx_col)[col]
+        # Safe column access – prevents KeyError crashes
+        col_series = safe_col(self._df, col)
+        if col_series is None:
+            self._ctrl.log_message.emit(f"[ERROR] 컬럼 '{col}'을 찾을 수 없습니다.")
+            return
+
+        if idx_col != "(default index)":
+            idx_series = safe_col(self._df, idx_col)
+            if idx_series is not None:
+                series = col_series.copy()
+                series.index = idx_series.values
+            else:
+                series = col_series
         else:
-            series = self._df[col]
+            series = col_series
 
         self._result = analyze_series(series, window=window, smooth=smooth, anomaly_sigma=sigma)
         r = self._result
@@ -257,9 +274,4 @@ class TimeSeriesPanel(QWidget):
         self._ai_btn.setText("🤖 AI Insight")
         if result is None:
             return
-        from PyQt6.QtWidgets import QMessageBox
-        msg = QMessageBox(self)
-        msg.setWindowTitle("AI Time-Series Insight")
-        msg.setText(result.answer)
-        msg.setIcon(QMessageBox.Icon.Information)
-        msg.exec()
+        self._insight.set_text(result.answer)

@@ -33,7 +33,8 @@ DARK_STYLESHEET = f"""
 QMainWindow, QWidget {{
     background-color: {C_BG};
     color: {C_TEXT};
-    font-family: "Segoe UI", "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
+    font-family: "Apple SD Gothic Neo", "Malgun Gothic", "맑은 고딕",
+                 "Segoe UI", "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
     font-size: 13px;
 }}
 QSplitter::handle {{ background: {C_OVERLAY}; width: 2px; height: 2px; }}
@@ -222,7 +223,38 @@ def apply_matplotlib_dark_theme() -> None:
         "savefig.edgecolor": C_BG,
         "lines.linewidth": 1.5,
         "patch.linewidth": 0.8,
+        # Always disable unicode-minus so Korean plots don't show □ for '-'
+        "axes.unicode_minus": False,
     })
+
+    # Korean font – try platform fonts; silently skip if none found
+    _configure_korean_font()
+
+
+def _configure_korean_font() -> None:
+    """Prepend a Korean-capable font to matplotlib's sans-serif list."""
+    import sys
+    import matplotlib.font_manager as fm
+
+    _candidates: dict[str, list[str]] = {
+        "darwin": ["Apple SD Gothic Neo", "AppleGothic", "NanumGothic"],
+        "win32":  ["Malgun Gothic", "맑은 고딕", "NanumGothic", "Gulim"],
+        "linux":  ["NanumGothic", "나눔고딕", "UnDotum"],
+    }
+    platform_key = sys.platform
+    priority = list(_candidates.get(platform_key, []))
+    # Add other-platform names as last-resort fallback
+    for k, v in _candidates.items():
+        if k != platform_key:
+            priority.extend(v)
+
+    available = {f.name for f in fm.fontManager.ttflist}
+    for name in priority:
+        if name in available:
+            current = list(matplotlib.rcParams.get("font.sans-serif", []))
+            if name not in current:
+                matplotlib.rcParams["font.sans-serif"] = [name] + current
+            break  # first match is enough
 
 
 # Colour cycle for data series

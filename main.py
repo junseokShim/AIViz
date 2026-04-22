@@ -35,9 +35,25 @@ def main() -> None:
     app.setApplicationVersion(APP.version)
     app.setOrganizationName("junseokShim")
 
-    # Apply global dark theme
+    # Apply global dark theme + Korean font configuration
     app.setStyleSheet(DARK_STYLESHEET)
     apply_matplotlib_dark_theme()
+
+    # Configure Qt font fallback for Korean text
+    try:
+        from aiviz.utils.font_utils import get_korean_qt_font_family
+        korean_family = get_korean_qt_font_family()
+        if korean_family:
+            from PyQt6.QtGui import QFont
+            default_font = app.font()
+            fallback_fonts = default_font.family()
+            # Qt6 does not have setFamilies on QApplication directly;
+            # the stylesheet already lists Korean-capable fallback fonts.
+            # Just log the result so we know which font was selected.
+            import sys as _sys
+            print(f"[Font] Korean font resolved: '{korean_family}'", file=_sys.stderr)
+    except Exception:
+        pass
 
     window = MainWindow()
     window.show()

@@ -57,23 +57,29 @@ def analyze_image(img: Image.Image, file_name: str = "", n_colors: int = 8) -> I
     has_transparency = mode in ("RGBA", "LA", "PA")
     is_grayscale = mode in ("L", "LA", "1")
 
-    # Per-channel statistics
-    stat = ImageStat.Stat(img)
+    # Per-channel statistics (use numpy for numerical stability)
+    # PIL ImageStat uses the computational variance formula (sum(x²)/n - mean²)
+    # which can yield tiny negative variances due to floating-point rounding,
+    # causing ValueError in sqrt.  numpy's std() is always non-negative.
     bands = img.getbands()
+    arr = np.array(img)
     channel_rows = []
     for i, band in enumerate(bands):
+        if arr.ndim == 2:
+            ch_arr = arr.astype(np.float64)
+        else:
+            ch_arr = arr[:, :, i].astype(np.float64)
         channel_rows.append({
             "channel": band,
-            "mean": stat.mean[i],
-            "std": stat.stddev[i],
-            "min": stat.extrema[i][0],
-            "max": stat.extrema[i][1],
+            "mean": float(np.mean(ch_arr)),
+            "std": float(np.std(ch_arr)),   # always ≥ 0
+            "min": float(np.min(ch_arr)),
+            "max": float(np.max(ch_arr)),
         })
     channel_stats = pd.DataFrame(channel_rows)
 
-    # Histograms
+    # Histograms  (arr already computed above)
     histograms: dict[str, tuple[np.ndarray, np.ndarray]] = {}
-    arr = np.array(img)
     if arr.ndim == 2:
         counts, edges = np.histogram(arr.ravel(), bins=64, range=(0, 256))
         histograms["L"] = (counts, edges)

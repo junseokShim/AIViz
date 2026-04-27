@@ -177,6 +177,137 @@ python -m pytest tests/ -k fft    # 특정 테스트만 실행
 
 ---
 
+---
+
+## 신호 분석 방법 추가하기
+
+### 1. analytics 모듈 작성
+
+`aiviz/analytics/signal/` 하위에 새 파일을 만듭니다.
+
+```python
+# aiviz/analytics/signal/my_method.py
+from dataclasses import dataclass
+from typing import Optional
+import numpy as np, pandas as pd
+from .common import prepare_signal, validate_signal
+
+@dataclass
+class MyResult:
+    freqs: np.ndarray
+    values: np.ndarray
+    stats: dict
+    error: Optional[str] = None
+
+def compute_my_method(series: pd.Series, sample_rate: float = 1.0, **kwargs) -> MyResult:
+    x = prepare_signal(series)
+    validate_signal(x, min_samples=16)
+    # ... 분석 로직 ...
+    return MyResult(freqs=..., values=..., stats={...})
+```
+
+**규칙:**
+- `prepare_signal()` + `validate_signal()` 반드시 호출
+- NaN/inf 입력 → 자동 처리됨
+- UI 임포트 절대 금지
+- 결과는 `@dataclass`로 구조화
+
+### 2. `__init__.py`에 등록
+
+```python
+# aiviz/analytics/signal/__init__.py
+from .my_method import compute_my_method, MyResult
+```
+
+### 3. 시각화 함수 추가
+
+```python
+# aiviz/visualization/mpl_charts.py
+def plot_my_method(ax: Axes, result: MyResult) -> None:
+    freqs_ds, vals_ds, _ = _safe_downsample(result.freqs, result.values)
+    ax.plot(freqs_ds, vals_ds, color=C_BLUE)
+    ax.set_title("My Method")
+```
+
+### 4. UI 패널 확장
+
+`aiviz/ui/panel_frequency.py`에서:
+1. `_METHOD_NAMES`에 이름 추가
+2. `_build_param_pages()`에 파라미터 위젯 추가
+3. `_compute_<name>()`에서 분석 함수 호출
+4. `_render_<name>()`에서 시각화 + 테이블 + 요약 추가
+5. `_run_ai()`의 kind 분기에 AI 설명 추가
+
+### 5. AI 프롬프트 추가 (선택)
+
+```python
+# aiviz/ai/prompts.py
+def my_method_prompt(stats: dict, col_name: str) -> str:
+    return f"""...\n{_LANG_INSTRUCTION}"""
+
+# aiviz/ai/agent.py
+def explain_my_method(self, stats: dict, col_name: str) -> AgentResult:
+    return self._call(prompts.my_method_prompt(stats, col_name), fallback="...")
+```
+
+---
+
+## DB 백엔드 추가하기
+
+### 결과 객체 구조 (QueryResult)
+
+```python
+@dataclass
+class QueryResult:
+    df: pd.DataFrame | None
+    columns: list[str]
+    row_count: int
+    error: str | None  # ok = (error is None)
+```
+
+### 새 백엔드 구현
+
+```python
+# aiviz/db/my_backend.py
+class MyBackend:
+    def connect(self) -> None: ...
+    def disconnect(self) -> None: ...
+    def is_connected(self) -> bool: ...
+    def test_connection(self) -> tuple[bool, str]: ...
+    def list_tables(self) -> list[str]: ...
+    def get_table_info(self, table_name: str) -> dict: ...
+    def read_table(self, table_name: str, limit=None) -> pd.DataFrame: ...
+    def execute_query(self, sql: str) -> pd.DataFrame: ...
+    def save_dataframe(self, df, table_name, if_exists) -> int: ...
+```
+
+### DBService에 등록
+
+`aiviz/db/db_service.py`의 `connect_external()`에 새 분기 추가.
+`aiviz/db/models.py`의 `DBType` enum에 새 타입 추가.
+
+---
+
+## 시간-주파수 시각화 다운샘플링 전략
+
+STFT/CWT/S-Transform 결과는 2D 행렬 (n_freqs × n_times)입니다.
+
+**렌더링 전략:**
+1. `n_times > 500`이면 시간 축 다운샘플링 적용
+2. `pcolormesh(shading='gouraud', rasterized=True)` 사용 → GPU 가속
+3. 로그 스케일 적용으로 동적 범위 개선 (`log10(|coefs| + ε)`)
+4. 오래 걸리는 분석 (CWT, S-Transform)은 `WorkerThread`로 비동기 실행
+
+**안전 한계:**
+| 방법 | 최대 신호 길이 | 비고 |
+|------|--------------|------|
+| FFT/PSD | 무제한 | O(N log N) |
+| STFT | 무제한 | O(N log N) |
+| CWT | ~50,000 | 시간 > 5초 가능 |
+| S-Transform | 4,096 (자동 다운샘플링) | O(N_f × N log N) |
+
+---
+
 ## 리팩토링 우선순위
 
 현재 확장 시 우선적으로 처리해야 할 항목:

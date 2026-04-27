@@ -37,6 +37,7 @@ from aiviz.ui.panel_forecast import ForecastPanel
 from aiviz.ui.panel_assistant import AssistantPanel
 from aiviz.ui.panel_export import ExportPanel
 from aiviz.ui.panel_ml import MLPanel
+from aiviz.ui.panel_db import DBPanel
 from config import APP, OLLAMA
 
 
@@ -117,6 +118,7 @@ class MainWindow(QMainWindow):
         self._panel_assistant = AssistantPanel(self.controller)
         self._panel_export = ExportPanel(self.controller)
         self._panel_ml = MLPanel(self.controller)
+        self._panel_db = DBPanel(self.controller)
 
         self._tabs.addTab(self._panel_data,      "📊  Data")
         self._tabs.addTab(self._panel_charts,    "📈  Charts")
@@ -126,6 +128,7 @@ class MainWindow(QMainWindow):
         self._tabs.addTab(self._panel_forecast,  "🔮  Forecast")
         self._tabs.addTab(self._panel_assistant, "🤖  AI Assistant")
         self._tabs.addTab(self._panel_ml,        "🧠  ML")
+        self._tabs.addTab(self._panel_db,        "🗄  Database")
         self._tabs.addTab(self._panel_export,    "📄  Export")
 
         self._splitter.addWidget(self._tabs)

@@ -215,6 +215,136 @@ def derived_column_prompt(expr: str, col_name: str, stats: dict) -> str:
 {_LANG_INSTRUCTION}"""
 
 
+def psd_analysis_prompt(stats: dict, col_name: str) -> str:
+    return f"""당신은 AIViz 신호 처리 및 스펙트럼 분석 전문가입니다.
+
+사용자가 '{col_name}' 신호에 Welch PSD 분석을 수행했습니다.
+
+분석 결과:
+- 샘플링 주파수: {stats.get('sample_rate', 1.0)} Hz
+- 세그먼트 크기: {stats.get('nperseg', 256)}
+- 창 함수: {stats.get('window', 'hann')}
+- 지배 주파수: {stats.get('dominant_freq', 0):.4g} Hz
+- 지배 PSD: {stats.get('dominant_power', 0):.4g} V²/Hz
+- 총 전력: {stats.get('total_power', 0):.4g}
+- Nyquist 주파수: {stats.get('nyquist', 0):.4g} Hz
+
+수행할 작업:
+- Welch PSD와 단순 FFT의 차이와 장점을 설명하세요.
+- 지배 주파수와 PSD 분포를 공학적으로 해석하세요.
+- 이 신호의 특성(주기적, 광대역 노이즈, 협대역 등)을 판단하세요.
+- 추가 분석이나 필터링 권장 사항을 제시하세요.
+{_LANG_INSTRUCTION}"""
+
+
+def stft_analysis_prompt(stats: dict, col_name: str) -> str:
+    return f"""당신은 AIViz 시간-주파수 분석 전문가입니다.
+
+사용자가 '{col_name}' 신호에 STFT 스펙트로그램 분석을 수행했습니다.
+
+분석 결과:
+- 샘플링 주파수: {stats.get('sample_rate', 1.0)} Hz
+- 세그먼트 크기: {stats.get('nperseg', 128)}
+- 겹침: {stats.get('noverlap', 96)}
+- 창 함수: {stats.get('window', 'hann')}
+- 시간 해상도: {stats.get('time_resolution_s', 0):.4g} 초
+- 주파수 해상도: {stats.get('freq_resolution_hz', 0):.4g} Hz
+- 시간 빈 수: {stats.get('n_time_bins', 0)}
+- 주파수 빈 수: {stats.get('n_freq_bins', 0)}
+- 평균 지배 주파수: {stats.get('mean_dominant_freq', 0):.4g} Hz
+
+수행할 작업:
+- STFT 스펙트로그램에서 관찰할 수 있는 시간-주파수 패턴을 설명하세요.
+- 신호가 정상(stationary)인지 비정상(non-stationary)인지 판단하는 방법을 설명하세요.
+- 시간-주파수 해상도 트레이드오프(Heisenberg 불확정성)를 설명하세요.
+- 스펙트로그램에서 이상 징후를 찾는 방법을 제안하세요.
+{_LANG_INSTRUCTION}"""
+
+
+def cwt_analysis_prompt(stats: dict, col_name: str) -> str:
+    bands = stats.get('high_energy_bands', [])
+    bands_str = ", ".join(f"{lo:.3g}–{hi:.3g} Hz" for lo, hi in bands) if bands else "감지 없음"
+    return f"""당신은 AIViz 웨이블릿 분석 전문가입니다.
+
+사용자가 '{col_name}' 신호에 CWT (연속 웨이블릿 변환) 분석을 수행했습니다.
+
+분석 결과:
+- 샘플링 주파수: {stats.get('sample_rate', 1.0)} Hz
+- 사용 웨이블릿: {stats.get('wavelet', 'morl')}
+- 스케일 수: {stats.get('n_scales', 64)}
+- 분석 주파수 범위: {stats.get('freq_min_hz', 0):.4g} ~ {stats.get('freq_max_hz', 0):.4g} Hz
+- 고에너지 대역: {bands_str}
+- 평균 지배 주파수: {stats.get('mean_dominant_freq', 0):.4g} Hz
+
+수행할 작업:
+- CWT와 STFT의 차이점 및 각각의 사용 사례를 설명하세요.
+- 스칼로그램에서 고에너지 대역의 물리적 의미를 해석하세요.
+- 사용된 웨이블릿 (특히 Morlet)의 특성을 설명하세요.
+- 비정상 신호나 과도 현상 감지에 CWT가 유리한 이유를 설명하세요.
+{_LANG_INSTRUCTION}"""
+
+
+def s_transform_analysis_prompt(stats: dict, col_name: str) -> str:
+    return f"""당신은 AIViz 시간-주파수 분석 전문가입니다.
+
+사용자가 '{col_name}' 신호에 S-Transform (Stockwell Transform) 분석을 수행했습니다.
+
+분석 결과:
+- 샘플링 주파수: {stats.get('sample_rate', 1.0)} Hz
+- 분석 주파수 범위: {stats.get('freq_min_hz', 0):.4g} ~ {stats.get('freq_max_hz', 0):.4g} Hz
+- 주파수 빈 수: {stats.get('n_freqs', 0)}
+- 평균 지배 주파수: {stats.get('mean_dominant_freq', 0):.4g} Hz
+{'- 신호가 다운샘플링되었습니다.' if stats.get('decimated') else ''}
+
+수행할 작업:
+- S-Transform이 STFT 및 CWT와 어떻게 다른지 설명하세요.
+  (주파수 적응형 가우시안 창, 절대 위상 보존 특성)
+- 시간-주파수 표현에서 관찰된 특성을 해석하세요.
+- S-Transform의 공학적 응용 사례(지진, 전력 품질, 생체신호 등)를 설명하세요.
+{_LANG_INSTRUCTION}"""
+
+
+def band_power_analysis_prompt(bands: list, col_name: str, method: str) -> str:
+    bands_str = "\n".join(
+        f"  - {b['band']}: {b['power']:.4g} ({b['relative_power']:.1f}%)"
+        for b in bands
+    )
+    return f"""당신은 AIViz 신호 처리 전문가입니다.
+
+사용자가 '{col_name}' 신호에 밴드 전력 분석을 수행했습니다 (방법: {method}).
+
+밴드별 전력:
+{bands_str}
+
+수행할 작업:
+- 가장 높은 전력을 가진 주파수 대역의 물리적 의미를 설명하세요.
+- 전력 분포 패턴이 무엇을 시사하는지 해석하세요.
+  (예: 저주파 우세 → 느린 변동 또는 DC 성분, 고주파 우세 → 노이즈 또는 빠른 진동)
+- 각 대역의 전력 비율을 기반으로 신호의 특성을 요약하세요.
+- 추가 분석을 위한 대역 필터링 권장 사항을 제시하세요.
+{_LANG_INSTRUCTION}"""
+
+
+def envelope_spectrum_prompt(stats: dict, col_name: str) -> str:
+    return f"""당신은 AIViz 회전 기계 진동 분석 전문가입니다.
+
+사용자가 '{col_name}' 신호에 Envelope Spectrum (포락선 스펙트럼) 분석을 수행했습니다.
+
+분석 결과:
+- 샘플링 주파수: {stats.get('sample_rate', 1.0)} Hz
+- Envelope RMS: {stats.get('envelope_rms', 0):.4g}
+- Envelope 피크: {stats.get('envelope_peak', 0):.4g}
+- 지배 주파수: {stats.get('dominant_freq', 0):.4g} Hz
+
+수행할 작업:
+- Hilbert 변환 기반 포락선 추출의 원리를 설명하세요.
+- 포락선 스펙트럼에서 결함 주파수를 어떻게 식별하는지 설명하세요.
+  (베어링 결함: BPFO, BPFI, BSF, FTF)
+- 지배 주파수의 물리적 의미를 해석하세요.
+- 이 분석 결과를 기반으로 기계 상태를 어떻게 평가할 수 있는지 설명하세요.
+{_LANG_INSTRUCTION}"""
+
+
 def ac_analysis_prompt(col_name: str, dc_offset: float, ac_rms: float, ac_peak: float) -> str:
     return f"""당신은 AIViz 신호 처리 전문가입니다.
 

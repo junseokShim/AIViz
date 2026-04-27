@@ -463,6 +463,208 @@ def plot_forecast(
 
 
 # ---------------------------------------------------------------------------
+# Advanced signal analysis charts
+# ---------------------------------------------------------------------------
+
+def plot_psd(ax: Axes, result, log_scale: bool = True) -> None:
+    """Plot Welch PSD."""
+    freqs = np.asarray(result.freqs)
+    psd   = np.asarray(result.psd)
+    n_orig = len(freqs)
+
+    freqs_ds, psd_ds, was_ds = _safe_downsample(freqs, psd)
+
+    ax.fill_between(freqs_ds, psd_ds, alpha=0.35, color=C_MAUVE)
+    ax.plot(freqs_ds, psd_ds, color=C_MAUVE, linewidth=1.3)
+
+    if was_ds:
+        _add_downsample_note(ax, n_orig, len(freqs_ds))
+
+    ax.set_xlabel("Frequency (Hz)")
+    ax.set_ylabel("PSD (V²/Hz)")
+    ax.set_title(
+        f"Welch PSD  |  dominant: {result.dominant_freq:.4g} Hz  |  "
+        f"total power: {result.total_power:.4g}"
+    )
+    if log_scale and np.all(psd_ds > 0):
+        ax.set_yscale("log")
+
+
+def plot_cwt_scalogram(ax: Axes, result) -> None:
+    """Plot CWT scalogram (time × frequency heatmap)."""
+    if not result.available:
+        ax.text(
+            0.5, 0.5, result.error or "CWT 사용 불가",
+            ha="center", va="center", color=C_RED, fontsize=11,
+            wrap=True, transform=ax.transAxes,
+        )
+        ax.set_title("CWT 스칼로그램 (사용 불가)")
+        return
+
+    times = result.times
+    freqs = result.freqs
+    coefs = result.coefs   # (n_scales, n_times)
+
+    # Downsample time axis if too many columns
+    MAX_T = 500
+    if coefs.shape[1] > MAX_T:
+        idx = np.round(np.linspace(0, coefs.shape[1] - 1, MAX_T)).astype(int)
+        times = times[idx]
+        coefs = coefs[:, idx]
+
+    # Log-scale power for better dynamic range
+    log_coefs = np.log10(coefs + 1e-12)
+
+    pcm = ax.pcolormesh(
+        times, freqs, log_coefs,
+        cmap="magma", shading="gouraud", rasterized=True,
+    )
+    ax.set_xlabel("Time (s)")
+    ax.set_ylabel("Frequency (Hz)")
+    ax.set_title(f"CWT 스칼로그램  |  wavelet: {result.wavelet}")
+    ax.figure.colorbar(pcm, ax=ax, label="log₁₀ |CWT|")
+
+
+def plot_s_transform(ax: Axes, result) -> None:
+    """Plot S-Transform time-frequency heatmap."""
+    if not result.available:
+        ax.text(
+            0.5, 0.5, result.error or "S-Transform 사용 불가",
+            ha="center", va="center", color=C_RED, fontsize=11,
+            wrap=True, transform=ax.transAxes,
+        )
+        ax.set_title("S-Transform (사용 불가)")
+        return
+
+    times = result.times
+    freqs = result.freqs
+    ST = result.ST   # (n_freqs, n_times)
+
+    if ST.size == 0 or len(freqs) == 0:
+        ax.text(0.5, 0.5, "결과 없음", ha="center", va="center", transform=ax.transAxes)
+        return
+
+    # Downsample time axis
+    MAX_T = 500
+    if ST.shape[1] > MAX_T:
+        idx = np.round(np.linspace(0, ST.shape[1] - 1, MAX_T)).astype(int)
+        times = times[idx]
+        ST = ST[:, idx]
+
+    pcm = ax.pcolormesh(
+        times, freqs, ST,
+        cmap="plasma", shading="gouraud", rasterized=True,
+    )
+    ax.set_xlabel("Time (s)")
+    ax.set_ylabel("Frequency (Hz)")
+    title = "S-Transform 시간-주파수"
+    if result.decimated:
+        title += f"  [다운샘플링: {result.original_n} → {len(result.times)}]"
+    ax.set_title(title)
+    ax.figure.colorbar(pcm, ax=ax, label="|S(t,f)|")
+
+
+def plot_envelope_spectrum(ax: Axes, result, log_scale: bool = False) -> None:
+    """Plot envelope spectrum (Hilbert-based)."""
+    freqs = np.asarray(result.freqs)
+    spec  = np.asarray(result.envelope_spectrum)
+    n_orig = len(freqs)
+
+    freqs_ds, spec_ds, was_ds = _safe_downsample(freqs, spec)
+
+    ax.plot(freqs_ds, spec_ds, color=C_GREEN, linewidth=1.2)
+    ax.fill_between(freqs_ds, spec_ds, alpha=0.3, color=C_GREEN)
+
+    # Mark dominant frequency
+    ax.axvline(result.dominant_freq, color=C_RED, linewidth=1.0,
+               linestyle="--", label=f"dominant: {result.dominant_freq:.4g} Hz")
+
+    if was_ds:
+        _add_downsample_note(ax, n_orig, len(freqs_ds))
+
+    ax.set_xlabel("Frequency (Hz)")
+    ax.set_ylabel("Amplitude")
+    ax.set_title(f"Envelope Spectrum  |  dominant: {result.dominant_freq:.4g} Hz")
+    ax.legend(fontsize=_SAFE_FONT_SIZE + 1, loc="upper right")
+    if log_scale and np.all(spec_ds > 0):
+        ax.set_yscale("log")
+
+
+def plot_cepstrum(ax: Axes, result) -> None:
+    """Plot real cepstrum."""
+    q   = np.asarray(result.quefrency)
+    cep = np.asarray(result.cepstrum)
+    n_orig = len(q)
+
+    q_ds, cep_ds, was_ds = _safe_downsample(q, cep)
+
+    ax.plot(q_ds, cep_ds, color=C_ORANGE, linewidth=1.0)
+
+    if result.dominant_quefrency > 0:
+        ax.axvline(
+            result.dominant_quefrency, color=C_RED, linewidth=1.2,
+            linestyle="--",
+            label=(
+                f"dominant: {result.dominant_quefrency*1000:.2f} ms  "
+                f"({result.dominant_pitch:.2f} Hz)"
+            ),
+        )
+        ax.legend(fontsize=_SAFE_FONT_SIZE + 1, loc="upper right")
+
+    if was_ds:
+        _add_downsample_note(ax, n_orig, len(q_ds))
+
+    ax.set_xlabel("Quefrency (s)")
+    ax.set_ylabel("Cepstrum")
+    ax.set_title(
+        f"Real Cepstrum  |  dominant quefrency: {result.dominant_quefrency*1000:.2f} ms"
+    )
+
+
+def plot_new_band_power(ax: Axes, result) -> None:
+    """Bar chart for BandPowerResult (from signal.band_power)."""
+    bands = result.bands
+    if not bands:
+        ax.text(0.5, 0.5, "밴드 데이터 없음", ha="center", va="center",
+                transform=ax.transAxes)
+        return
+
+    names = [b["band"] for b in bands]
+    powers = [b["relative_power"] for b in bands]
+    colors = SERIES_COLORS[:len(names)]
+
+    bars = ax.bar(names, powers, color=colors)
+    for bar, val in zip(bars, powers):
+        ax.text(
+            bar.get_x() + bar.get_width() / 2,
+            bar.get_height() + 0.5,
+            f"{val:.1f}%",
+            ha="center", fontsize=_SAFE_FONT_SIZE + 1, color="#cdd6f4",
+        )
+
+    ax.set_ylabel("상대 전력 (%)")
+    ax.set_title(f"Band Power 분포  ({result.method})")
+    ax.set_ylim(0, max(powers) * 1.15 if powers else 1)
+    ax.tick_params(axis="x", rotation=20, labelsize=_SAFE_FONT_SIZE)
+
+
+def plot_dominant_freq_over_time(
+    ax: Axes,
+    times: np.ndarray,
+    dominant_freqs: np.ndarray,
+    title: str = "Dominant Frequency over Time",
+) -> None:
+    """Line plot of dominant frequency at each time step."""
+    t_ds, f_ds, was_ds = _safe_downsample(times, dominant_freqs)
+    ax.plot(t_ds, f_ds, color=C_ORANGE, linewidth=1.2)
+    if was_ds:
+        _add_downsample_note(ax, len(times), len(t_ds))
+    ax.set_xlabel("Time (s)")
+    ax.set_ylabel("Dominant Frequency (Hz)")
+    ax.set_title(title)
+
+
+# ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
 

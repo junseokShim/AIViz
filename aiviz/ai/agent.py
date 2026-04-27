@@ -73,6 +73,64 @@ class AnalysisAgent:
         prompt = prompts.frequency_analysis_prompt(fft_stats, col_name)
         return self._call(prompt, fallback=self._fallback_fft(fft_stats, col_name))
 
+    def explain_psd(self, stats: dict, col_name: str) -> AgentResult:
+        prompt = prompts.psd_analysis_prompt(stats, col_name)
+        return self._call(
+            prompt,
+            fallback=(
+                f"PSD '{col_name}': 지배 주파수={stats.get('dominant_freq', 0):.4g} Hz, "
+                f"총 전력={stats.get('total_power', 0):.4g}. (AI 오프라인)"
+            ),
+        )
+
+    def explain_stft(self, stats: dict, col_name: str) -> AgentResult:
+        prompt = prompts.stft_analysis_prompt(stats, col_name)
+        return self._call(
+            prompt,
+            fallback=(
+                f"STFT '{col_name}': {stats.get('n_time_bins', 0)} 시간 빈, "
+                f"{stats.get('n_freq_bins', 0)} 주파수 빈. (AI 오프라인)"
+            ),
+        )
+
+    def explain_cwt(self, stats: dict, col_name: str) -> AgentResult:
+        prompt = prompts.cwt_analysis_prompt(stats, col_name)
+        return self._call(
+            prompt,
+            fallback=(
+                f"CWT '{col_name}': wavelet={stats.get('wavelet', 'morl')}, "
+                f"평균 지배 주파수={stats.get('mean_dominant_freq', 0):.4g} Hz. (AI 오프라인)"
+            ),
+        )
+
+    def explain_s_transform(self, stats: dict, col_name: str) -> AgentResult:
+        prompt = prompts.s_transform_analysis_prompt(stats, col_name)
+        return self._call(
+            prompt,
+            fallback=f"S-Transform '{col_name}': 분석 완료. (AI 오프라인)",
+        )
+
+    def explain_band_power(self, bands: list, col_name: str, method: str) -> AgentResult:
+        prompt = prompts.band_power_analysis_prompt(bands, col_name, method)
+        dominant = max(bands, key=lambda b: b["power"], default={}) if bands else {}
+        return self._call(
+            prompt,
+            fallback=(
+                f"Band Power '{col_name}': 최대 에너지 대역 "
+                f"'{dominant.get('band', '?')}'. (AI 오프라인)"
+            ),
+        )
+
+    def explain_envelope(self, stats: dict, col_name: str) -> AgentResult:
+        prompt = prompts.envelope_spectrum_prompt(stats, col_name)
+        return self._call(
+            prompt,
+            fallback=(
+                f"Envelope Spectrum '{col_name}': 지배 주파수="
+                f"{stats.get('dominant_freq', 0):.4g} Hz. (AI 오프라인)"
+            ),
+        )
+
     def explain_image_stats(self, image_info: dict, question: str = "") -> AgentResult:
         ch_stats = image_info.get("channel_stats")
         if ch_stats is not None and hasattr(ch_stats, "to_string"):
